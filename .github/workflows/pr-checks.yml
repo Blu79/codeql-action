@@ -20,6 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [20, 24]
     permissions:
       contents: read
       security-events: write # needed to upload ESLint results
@@ -36,7 +37,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version: ${{ matrix.node-version }}
           cache: 'npm'
 
       - name: Set up Python
@@ -50,6 +51,24 @@ jobs:
           # that are not available in the default shell on Windows.
           npm config set script-shell bash
           npm ci
+
+      - name: Downgrade @types/node dependency to v20
+        if: matrix.node-version == 20
+        run: |
+          contents=$(jq '.devDependencies."@types/node" = "^20.0.0"' package.json)
+          echo "${contents}" > package.json
+          # Usually we run `npm install` on macOS to ensure that we pick up macOS-only dependencies.
+          # However we're not checking in the updated lockfile here, so it's fine to run
+          # `npm install` on Linux.
+          npm install
+
+          if [ ! -z "$(git status --porcelain)" ]; then
+            git config --global user.email "github-actions@github.com"
+            git config --global user.name "github-actions[bot]"
+            # The period in `git add --all .` ensures that we stage deleted files too.
+            git add --all .
+            git commit -m "Use @types/node=v20"
+          fi
 
       - name: Verify compiled JS up to date
         run: .github/workflows/script/check-js.sh
@@ -70,7 +89,7 @@ jobs:
 
       - name: Upload sarif
         uses: github/codeql-action/upload-sarif@v3
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         with:
           sarif_file: eslint.sarif
           category: eslint
